@@ -1,0 +1,127 @@
+# HeirClear — Pilot Product Implementation Plan
+
+Build a MERN (MongoDB, Express, React, Node) inheritance claim tracking system. A user submits a claim → system tracks it → user sees status at every stage. Admin reviews and updates claims.
+
+## Design Decisions
+
+- **Admin seeding**: First admin created via a seed script (`npm run seed`)
+- **File storage**: Local disk `server/uploads/` with Multer
+- **Document preview**: `<img>` for images, `<iframe>` for PDFs
+- **Account masking**: Show last 4 digits only (`XXXX-XXXX-1234`)
+- **Signup fields**: Name, Email, Password
+- **Delete behavior**: Hard delete (claim removed entirely)
+- **Multiple claims**: Allowed per account number
+
+> [!IMPORTANT]
+> State transitions are enforced server-side: `Submitted → Under Review`, `Under Review → Approved/Rejected`, `Rejected → Under Review`. Any invalid transition returns a 400 error.
+
+## Proposed Changes
+
+### Project Root
+
+#### [NEW] [package.json](file:///d:/heirclear/package.json)
+Root package.json with concurrent dev script to run both server and client.
+
+---
+
+### Backend (`server/`)
+
+#### [NEW] [server.js](file:///d:/heirclear/server/server.js)
+Express entry point. MongoDB connection via Mongoose. CORS config. Static file serving for uploads. Error handling middleware.
+
+#### [NEW] [.env](file:///d:/heirclear/server/.env)
+Environment variables: `MONGO_URI`, `JWT_SECRET`, `PORT`.
+
+#### [NEW] [User.js](file:///d:/heirclear/server/models/User.js)
+Mongoose schema: `name`, `email` (unique), `password` (bcrypt hashed), `role` (enum: user/admin), `createdAt`.
+
+#### [NEW] [Claim.js](file:///d:/heirclear/server/models/Claim.js)
+Mongoose schema: `userId` (ref), `accountNumber`, `status` (enum: Submitted/Under Review/Approved/Rejected), `documents` object (deathCertificate, idProof, relationshipProof — file paths), `remarks`, `submittedAt`, `updatedAt`, `actionTimestamp`.
+
+#### [NEW] [auth.js](file:///d:/heirclear/server/routes/auth.js)
+`POST /api/auth/register` — validate, hash password, create user, return JWT.  
+`POST /api/auth/login` — validate credentials, return JWT.  
+`GET /api/auth/me` — return current user info.
+
+#### [NEW] [claims.js](file:///d:/heirclear/server/routes/claims.js)
+`POST /api/claims` — submit claim with file uploads (Multer).  
+`GET /api/claims` — list user's own claims.  
+`GET /api/claims/:id` — single claim details (own claims only).
+
+#### [NEW] [admin.js](file:///d:/heirclear/server/routes/admin.js)
+`GET /api/admin/claims` — all claims with user info.  
+`GET /api/admin/claims/:id` — single claim with full details.  
+`PUT /api/admin/claims/:id` — update status + remarks (validates transitions).  
+`DELETE /api/admin/claims/:id` — delete claim.
+
+#### [NEW] [auth.js](file:///d:/heirclear/server/middleware/auth.js)
+JWT verification middleware and admin role check middleware.
+
+#### [NEW] [upload.js](file:///d:/heirclear/server/middleware/upload.js)
+Multer config: destination `uploads/`, 5MB limit, filter PDF/JPG/PNG only.
+
+#### [NEW] [seed.js](file:///d:/heirclear/server/seed.js)
+Script to create default admin: `admin@heirclear.com` / `admin123`.
+
+---
+
+### Frontend (`client/`)
+
+#### [NEW] React + Vite project
+Initialized with `npx create-vite@latest ./ --template react`. Key files:
+
+#### [NEW] [AuthContext.jsx](file:///d:/heirclear/client/src/context/AuthContext.jsx)
+React context for JWT auth state, login/logout/register functions, and role-based access.
+
+#### [NEW] [ProtectedRoute.jsx](file:///d:/heirclear/client/src/components/ProtectedRoute.jsx)
+Route guard checking auth + optional role requirement. Redirects to login if not authenticated.
+
+#### [NEW] [Login.jsx](file:///d:/heirclear/client/src/pages/Login.jsx)
+**Screen 1** — Email + password login form, error messages, link to register.
+
+#### [NEW] [Register.jsx](file:///d:/heirclear/client/src/pages/Register.jsx)
+**Screen 1** — Name + email + password signup form, error messages, link to login.
+
+#### [NEW] [UserDashboard.jsx](file:///d:/heirclear/client/src/pages/UserDashboard.jsx)
+**Screen 2** — "Submit Claim" button, list of user's claims (masked account, date, status, view details), profile dropdown with logout.
+
+#### [NEW] [SubmitClaim.jsx](file:///d:/heirclear/client/src/pages/SubmitClaim.jsx)
+**Screen 3** — Account number input, 3 file uploads (death cert, ID, relationship), file validation (type + size), submit disabled until all provided, cancel button.
+
+#### [NEW] [ClaimDetails.jsx](file:///d:/heirclear/client/src/pages/ClaimDetails.jsx)
+**Screen 4** — Claim ID, date, status badge, remarks, document previews, back button.
+
+#### [NEW] [AdminDashboard.jsx](file:///d:/heirclear/client/src/pages/AdminDashboard.jsx)
+**Screen 5** — Table of all claims: user name, account number, date, status, "View Claim" link.
+
+#### [NEW] [AdminClaimReview.jsx](file:///d:/heirclear/client/src/pages/AdminClaimReview.jsx)
+**Screen 6** — Document previews, status dropdown (valid transitions only), remarks input, save with confirmation popup, action timestamp display.
+
+#### [NEW] [index.css](file:///d:/heirclear/client/src/index.css)
+Design system: professional banking theme with deep navy (#1a1a2e), gold accents (#d4a843), clean typography (Inter font), status color coding, responsive layout.
+
+---
+
+## Verification Plan
+
+### Automated (Browser-Based End-to-End)
+Using the browser tool to test the complete flow 3 times as required by the PRD:
+
+1. **Start servers**: `npm run dev` from project root
+2. **Test Flow**:
+   - Open `http://localhost:5173`
+   - Register a new user → verify redirect to dashboard
+   - Submit a claim with 3 file uploads → verify redirect to claim details
+   - Verify claim status shows "Submitted"
+   - Login as admin (`admin@heirclear.com` / `admin123`)
+   - Verify claim appears in admin dashboard
+   - Open claim, change status to "Under Review", add remarks, save
+   - Login back as user → verify status updated to "Under Review"
+   - Repeat admin review: approve the claim
+   - Verify final "Approved" status on user dashboard
+3. **Verify state machine**: Attempt an invalid transition (e.g., Submitted → Approved) and confirm it's blocked
+4. **Verify error handling**: Test wrong login credentials, missing fields, oversized files
+
+### Manual Verification
+- Visually inspect all 6 screens on both desktop and mobile viewport
+- Confirm no blank screens or silent failures
