@@ -69,10 +69,20 @@ app.use((err, req, res, next) => {
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 5000;
 
+console.log('Starting HeirClear server...');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', PORT);
+console.log('MONGO_URI:', process.env.MONGO_URI ? 'Set (hidden)' : 'NOT SET!');
+
+if (!process.env.MONGO_URI) {
+  console.error('ERROR: MONGO_URI environment variable is not set!');
+  process.exit(1);
+}
+
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('Connected to MongoDB');
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
     });
   })
